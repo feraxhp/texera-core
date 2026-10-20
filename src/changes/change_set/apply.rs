@@ -33,19 +33,22 @@ impl ChangeSet {
                     .extend_note(format!("`set`: {}, `text`: {}", self.len_old(), text.len_chars()).as_tip_cotinuation())
             );
         }
-        
-        let mut new_text = text.clone();
-        for change in self.iter_changes(false) {
-            let text = change.text;
-            let old_range = change.map.old;
-            let new_range = change.map.new;
-            
-            new_text = new_text.replace(
-                Some(new_range.from), 
-                Some(new_range.from + (old_range.to - old_range.from)), 
-                text);
+
+        let mut rope = text.into_rope();
+        let changes: Vec<_> = self.iter_changes(false).collect();
+        for change in changes.into_iter().rev() {
+            let from = change.map.old.from;
+            let to = change.map.old.to;
+            if to > from {
+                rope.remove(from..to);
+            }
+            let mut insert_pos = from;
+            for chunk in change.text.as_rope().chunks() {
+                rope.insert(insert_pos, chunk);
+                insert_pos += chunk.chars().count();
+            }
         }
-        
-        Ok(new_text)
+
+        Ok(Text::from_rope(rope))
     }
 }

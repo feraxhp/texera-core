@@ -57,6 +57,15 @@ impl Text {
     /// assert_eq!(doc.to_string(), "");
     /// ```
     pub fn new() -> Self { Self::default() }
+
+    #[inline]
+    pub(crate) fn from_rope(rope: Rope) -> Self { Self { rope } }
+
+    #[inline]
+    pub(crate) fn as_rope(&self) -> &Rope { &self.rope }
+
+    #[inline]
+    pub(crate) fn into_rope(self) -> Rope { self.rope }
 }
 
 impl Default for Text {

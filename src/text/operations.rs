@@ -24,11 +24,23 @@ impl Text {
         
         let to_char = to_char.min(self.rope.len_chars()).max(from_char);
         
-        let mut tail = self.rope.split_off(from_char);
-        let after = tail.split_off(to_char - from_char);
-        
-        self.rope.append(text.rope);
-        self.rope.append(after);
+        if to_char > from_char {
+            self.rope.remove(from_char..to_char);
+        }
+
+        if text.rope.len_chars() > 0 {
+            if self.rope.len_chars() == 0 {
+                self.rope = text.rope;
+            } else if from_char >= self.rope.len_chars() {
+                self.rope.append(text.rope);
+            } else {
+                let mut insert_pos = from_char;
+                for chunk in text.rope.chunks() {
+                    self.rope.insert(insert_pos, chunk);
+                    insert_pos += chunk.chars().count();
+                }
+            }
+        }
         
         self
     }
@@ -64,10 +76,14 @@ impl Text {
     pub fn insert(&mut self, char_idx: usize, text: &Text) {
         if char_idx >= self.rope.len_chars() {
             self.rope.append(text.rope.clone());
+        } else if self.rope.len_chars() == 0 {
+            self.rope = text.rope.clone();
         } else {
-            let tail = self.rope.split_off(char_idx);
-            self.rope.append(text.rope.clone());
-            self.rope.append(tail);
+            let mut insert_pos = char_idx;
+            for chunk in text.rope.chunks() {
+                self.rope.insert(insert_pos, chunk);
+                insert_pos += chunk.chars().count();
+            }
         }
     }
 
