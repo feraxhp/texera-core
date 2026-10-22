@@ -1,5 +1,6 @@
+use std::borrow::Cow;
 use mynox::Error;
-use ropey::Rope;
+use ropey::{Rope, RopeSlice};
 
 use crate::errors::out_of_bounds;
 use super::super::Text;
@@ -7,6 +8,9 @@ use super::super::Text;
 /// Metadata and content for a single line in a [`Text`] document.
 ///
 /// Returned by [`Text::line`], [`Text::line_at`], [`Text::iter_lines`], and [`Text::iter_range`].
+///
+/// Backed directly by a zero-allocation [`RopeSlice`], avoiding heap allocations when querying
+/// line metadata or slicing text.
 ///
 /// # Examples
 ///
@@ -24,67 +28,136 @@ use super::super::Text;
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Clone, Debug)]
-pub struct Line {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Line<'a> {
     from: usize,
     to: usize,
     number: usize,
-    text: String,
-    length: usize,
+    slice: RopeSlice<'a>,
 }
 
-impl Line {    
+impl<'a> Line<'a> {    
     /// Returns the start character offset of this line in the document.
+    #[inline]
     pub fn from(&self) -> usize { self.from }
-    /// Returns the end character offset of this line (including any trailing newline character).
-    pub fn to(&self) -> usize { self.to }
-    /// Returns the 0-based line index in the document.
-    pub fn number(&self) -> usize { self.number }
-    /// Returns the full string of the line (including any trailing newline character).
-    pub fn text(&self) -> String { self.text.to_owned() }
-    /// Returns the character length of the line (including any trailing newline character).
-    pub fn length(&self) -> usize { self.length }
 
-    /// Returns the line text without trailing line break characters (`\r\n`, `\n`, or `\r`).
-    pub fn text_trimmed(&self) -> &str {
-        self.text
-            .strip_suffix("\r\n")
-            .or_else(|| self.text.strip_suffix('\n'))
-            .or_else(|| self.text.strip_suffix('\r'))
-            .unwrap_or(&self.text)
+    /// Returns the end character offset of this line (including any trailing newline character).
+    #[inline]
+    pub fn to(&self) -> usize { self.to }
+
+    /// Returns the 0-based line index in the document.
+    #[inline]
+    pub fn number(&self) -> usize { self.number }
+
+    /// Returns the character length of the line (including any trailing newline character).
+    #[inline]
+    pub fn length(&self) -> usize { self.to - self.from }
+
+    /// Returns the underlying [`RopeSlice`] representing this line.
+    #[inline]
+    pub fn slice(&self) -> RopeSlice<'a> { self.slice }
+
+    /// Returns the string slice if this line is stored in a contiguous chunk in the rope.
+    #[inline]
+    pub fn as_str(&self) -> Option<&'a str> { self.slice.as_str() }
+
+    /// Returns the full text of the line (including any trailing newline character).
+    ///
+    /// Borrows without allocation if the line is contiguous in a chunk; allocates a [`String`]
+    /// only if the line spans multiple chunks.
+    pub fn text(&self) -> Cow<'a, str> {
+        match self.slice.as_str() {
+            Some(s) => Cow::Borrowed(s),
+            None => Cow::Owned(self.slice.to_string()),
+        }
+    }
+
+    /// Number of trailing line-break characters (`\r\n` = 2, `\n` = 1, `\r` = 1, none = 0).
+    fn newline_chars(&self) -> usize {
+        if let Some(s) = self.slice.as_str() {
+            let bytes = s.as_bytes();
+            let len = bytes.len();
+            if len == 0 {
+                return 0;
+            }
+            if bytes[len - 1] == b'\n' {
+                if len >= 2 && bytes[len - 2] == b'\r' {
+                    2
+                } else {
+                    1
+                }
+            } else if bytes[len - 1] == b'\r' {
+                1
+            } else {
+                0
+            }
+        } else {
+            let len = self.slice.len_chars();
+            if len == 0 {
+                return 0;
+            }
+            if self.slice.char(len - 1) == '\n' {
+                if len >= 2 && self.slice.char(len - 2) == '\r' {
+                    2
+                } else {
+                    1
+                }
+            } else if self.slice.char(len - 1) == '\r' {
+                1
+            } else {
+                0
+            }
+        }
     }
 
     /// Returns the character length of the line excluding trailing line breaks.
+    #[inline]
     pub fn length_trimmed(&self) -> usize {
-        let trimmed_bytes = self.text.len() - self.text_trimmed().len();
-        let newline_chars = match trimmed_bytes {
-            2 => 2,
-            1 => 1,
-            _ => 0,
-        };
-        self.length.saturating_sub(newline_chars)
+        self.length().saturating_sub(self.newline_chars())
     }
 
     /// Returns the end character offset of the line excluding trailing line breaks.
+    #[inline]
     pub fn to_trimmed(&self) -> usize {
         self.from + self.length_trimmed()
     }
+
+    /// Returns the sub-slice of this line without trailing line breaks.
+    #[inline]
+    pub fn slice_trimmed(&self) -> RopeSlice<'a> {
+        self.slice.slice(..self.length_trimmed())
+    }
+
+    /// Returns the line text without trailing line break characters (`\r\n`, `\n`, or `\r`).
+    ///
+    /// Borrows without allocation if the line is contiguous in a chunk; allocates a [`String`]
+    /// only if the line spans multiple chunks.
+    pub fn text_trimmed(&self) -> Cow<'a, str> {
+        let trimmed = self.slice_trimmed();
+        match trimmed.as_str() {
+            Some(s) => Cow::Borrowed(s),
+            None => Cow::Owned(trimmed.to_string()),
+        }
+    }
 }
 
-impl From<(&Rope, usize)> for Line {
-    fn from((rope, line_number): (&Rope, usize)) -> Self {
+impl<'a> std::fmt::Display for Line<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.slice)
+    }
+}
+
+impl<'a> From<(&'a Rope, usize)> for Line<'a> {
+    fn from((rope, line_number): (&'a Rope, usize)) -> Self {
         let slice = rope.line(line_number);
-        
-        let length = slice.len_chars();
         let from = rope.line_to_char(line_number);
-        let to = from + length;
+        let to = from + slice.len_chars();
 
         Line { 
             from, 
             to, 
             number: line_number, 
-            text: slice.to_string(), 
-            length,
+            slice,
         }
     }
 }
@@ -108,7 +181,7 @@ impl Text {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn line(&self, number: usize) -> Result<Line, Error> {
+    pub fn line(&self, number: usize) -> Result<Line<'_>, Error> {
         let lines = self.len_lines();
         if number >= lines { return Err(out_of_bounds(number, lines.saturating_sub(1))); }
         Ok((&self.rope, number).into())
@@ -131,7 +204,7 @@ impl Text {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn line_at(&self, pos: usize) -> Result<Line, Error> {
+    pub fn line_at(&self, pos: usize) -> Result<Line<'_>, Error> {
         let chars = self.len_chars();
         if chars < pos { return Err(out_of_bounds(pos, chars)); }
         let number = self.rope.char_to_line(pos);
@@ -156,7 +229,7 @@ impl Text {
     ///     .collect();
     /// assert_eq!(subset, vec!["l1", "l2"]);
     /// ```
-    pub fn iter_lines(&self, from: Option<usize>, to: Option<usize>) -> impl Iterator<Item = Line> + '_ {
+    pub fn iter_lines(&self, from: Option<usize>, to: Option<usize>) -> impl Iterator<Item = Line<'_>> + '_ {
         let from_line = match from {
             Some(pos) => pos,
             None => 0,
@@ -168,10 +241,29 @@ impl Text {
         };
         
         let end_line = to_line.min(self.rope.len_lines()).max(from_line);
-        
-        let rope = &self.rope;
-        
-        (from_line..end_line).map(move |line_idx| (rope, line_idx).into())
+        let total_lines = end_line.saturating_sub(from_line);
+
+        let mut char_offset = if total_lines > 0 {
+            self.rope.line_to_char(from_line)
+        } else {
+            0
+        };
+
+        let lines_iter = self.rope.lines_at(from_line);
+
+        lines_iter.take(total_lines).enumerate().map(move |(idx, slice)| {
+            let line_num = from_line + idx;
+            let from = char_offset;
+            let len = slice.len_chars();
+            char_offset += len;
+            let to = from + len;
+            Line {
+                from,
+                to,
+                number: line_num,
+                slice,
+            }
+        })
     }
     
     /// Iterates over all [`Line`]s touched by the character range `[from..=to]`.
@@ -188,21 +280,41 @@ impl Text {
     /// let touched: Vec<usize> = doc.iter_range(Some(1), Some(4)).map(|l| l.number()).collect();
     /// assert_eq!(touched, vec![0, 1]);
     /// ```
-    pub fn iter_range(&self, from: Option<usize>, to: Option<usize>) -> impl Iterator<Item = Line> + '_ {
+    pub fn iter_range(&self, from: Option<usize>, to: Option<usize>) -> impl Iterator<Item = Line<'_>> + '_ {
+        let len_chars = self.rope.len_chars();
         let from_line = match from {
-            Some(pos) => self.rope.char_to_line(pos),
+            Some(pos) => self.rope.char_to_line(pos.min(len_chars)),
             None => 0,
         };
         
         let to_line = match to {
-            Some(pos) => self.rope.char_to_line(pos) + 1, 
+            Some(pos) => self.rope.char_to_line(pos.min(len_chars)) + 1, 
             None => self.rope.len_lines(),
         };
         
         let end_line = to_line.min(self.rope.len_lines()).max(from_line);
-        
-        let rope = &self.rope;
-        
-        (from_line..end_line).map(move |line_idx| (rope, line_idx).into())
+        let total_lines = end_line.saturating_sub(from_line);
+
+        let mut char_offset = if total_lines > 0 {
+            self.rope.line_to_char(from_line)
+        } else {
+            0
+        };
+
+        let lines_iter = self.rope.lines_at(from_line);
+
+        lines_iter.take(total_lines).enumerate().map(move |(idx, slice)| {
+            let line_num = from_line + idx;
+            let from = char_offset;
+            let len = slice.len_chars();
+            char_offset += len;
+            let to = from + len;
+            Line {
+                from,
+                to,
+                number: line_num,
+                slice,
+            }
+        })
     }
 }

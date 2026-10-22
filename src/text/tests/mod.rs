@@ -218,7 +218,7 @@ fn can_iterate_over_lines() -> Result<(), Report> {
     let doc = Text::from(["ab", "cde", "", "", "f", "", "g"]);
     
     let get = |from: Option<usize>, to: Option<usize>| -> String {
-        let lines: Vec<String> = doc.iter_lines(from, to).map(|l| l.text()).collect();
+        let lines: Vec<String> = doc.iter_lines(from, to).map(|l| l.text().into_owned()).collect();
         lines.concat()
     };
     
