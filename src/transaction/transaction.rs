@@ -152,27 +152,30 @@ impl TryFrom<(usize, TransactionSpec)> for Transaction {
     type Error = mynox::Error;
 
     fn try_from((doc_len, value): (usize, TransactionSpec)) -> Result<Self, Self::Error> {
-        let spec = value.clone();
         let changes = if value.changes.is_empty() {
             None
         } else {
             Some(ChangeSet::from_slice(value.changes.as_slice(), doc_len)?)
         };
         
-        let mut annotations = value.annotations;
-        if let Some(user_event) = value.user_event {
+        let mut annotations = value.annotations.clone();
+        if let Some(user_event) = &value.user_event {
             annotations.push(Annotation::user_event(user_event));
         }
+
+        let selection = value.selection.clone();
+        let effects = value.effects.clone();
+        let scroll_into_view = value.scroll_into_view.unwrap_or(false);
         
         Ok(Self {
             changes,
-            selection: value.selection,
+            selection,
             annotations,
-            effects: value.effects,
-            scroll_into_view: value.scroll_into_view.unwrap_or(false),
+            effects,
+            scroll_into_view,
             doc: Text::default(),
             start_state: State::default(),
-            spec,
+            spec: value,
         })
     }
 }

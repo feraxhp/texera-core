@@ -512,6 +512,39 @@ impl State {
         let cat = self.char_categorizer(pos);
 
         let target = pos.saturating_sub(from).min(length);
+
+        if text.is_ascii() {
+            let bytes = text.as_bytes();
+            let mut start = target;
+            let mut end = target;
+
+            let mut i = target;
+            while i > 0 {
+                let prev = &text[i - 1..i];
+                if cat.categorize(prev) != CharCategory::Word {
+                    break;
+                }
+                i -= 1;
+                start = i;
+            }
+
+            let mut j = target;
+            while j < bytes.len() {
+                let next = &text[j..j + 1];
+                if cat.categorize(next) != CharCategory::Word {
+                    break;
+                }
+                j += 1;
+                end = j;
+            }
+
+            return if start == end {
+                None
+            } else {
+                Some(Selection::range(start + from, end + from))
+            };
+        }
+
         let mut graphemes: Vec<(usize, usize, &str)> = Vec::new();
         let mut char_idx = 0;
         let mut split_idx = 0;
@@ -569,7 +602,31 @@ impl State {
         match self.facet::<LineSeparator>() {
             Some(sep) => {
                 let cleaned = if sep != "\n" {
-                    text.replace(sep, "\x00").replace('\n', " ").replace('\x00', "\n")
+                    let mut result = String::with_capacity(text.len());
+                    let mut i = 0;
+                    let sep_bytes = sep.as_bytes();
+                    let text_bytes = text.as_bytes();
+                    while i < text_bytes.len() {
+                        if text_bytes[i..].starts_with(sep_bytes) {
+                            result.push('\n');
+                            i += sep_bytes.len();
+                        } else if text_bytes[i] == b'\n' {
+                            result.push(' ');
+                            i += 1;
+                        } else {
+                            let start = i;
+                            while i < text_bytes.len()
+                                && !text_bytes[i..].starts_with(sep_bytes)
+                                && text_bytes[i] != b'\n'
+                            {
+                                i += 1;
+                            }
+                            if let Ok(s) = std::str::from_utf8(&text_bytes[start..i]) {
+                                result.push_str(s);
+                            }
+                        }
+                    }
+                    result
                 } else {
                     text.to_string()
                 };

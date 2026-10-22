@@ -129,16 +129,26 @@ impl SelectionRange {
     /// # }
     /// ```
     pub fn map(&self, change: &ChangeDesc, assoc: Assoc) -> Result<Self, Error> {
+        let mut cursor = change.cursor();
+        self.map_with_cursor(&mut cursor, assoc)
+    }
+
+    #[inline]
+    pub(crate) fn map_with_cursor(
+        &self,
+        cursor: &mut crate::changes::map_pos::ChangeDescCursor<'_>,
+        assoc: Assoc,
+    ) -> Result<Self, Error> {
         let (new_from, new_to) = if self.empty() {
-            let pos = change
+            let pos = cursor
                 .map_pos(self.from, assoc, MapMode::Simple)?
                 .unwrap_or(0);
             (pos, pos)
         } else {
-            let f = change
+            let f = cursor
                 .map_pos(self.from, Assoc::After, MapMode::Simple)?
                 .unwrap_or(0);
-            let t = change
+            let t = cursor
                 .map_pos(self.to, Assoc::Before, MapMode::Simple)?
                 .unwrap_or(0);
             (f, t.max(f))

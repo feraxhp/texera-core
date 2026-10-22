@@ -52,7 +52,97 @@ impl MapMode {
     fn is_track_after(&self) -> bool { matches!(self, Self::TrackAfter) }
 }
 
+pub(crate) struct ChangeDescCursor<'a> {
+    sections: &'a [super::Section],
+    idx: usize,
+    original_pos: usize,
+    target_pos: usize,
+}
+
+impl<'a> ChangeDescCursor<'a> {
+    #[inline]
+    pub fn new(desc: &'a ChangeDesc) -> Self {
+        Self {
+            sections: &desc.sections,
+            idx: 0,
+            original_pos: 0,
+            target_pos: 0,
+        }
+    }
+
+    pub fn map_pos(&mut self, pos: usize, assoc: Assoc, mode: MapMode) -> Result<Option<usize>, Error> {
+        if self.sections.is_empty() {
+            if pos == 0 {
+                return Ok(Some(0));
+            } else {
+                return Err(out_of_bounds(pos, 0));
+            }
+        }
+
+        if self.sections.len() == 1 && self.sections[0].is_keep() {
+            let len = self.sections[0].original;
+            if pos > len {
+                return Err(out_of_bounds(pos, len));
+            }
+            return Ok(Some(pos));
+        }
+
+        if pos < self.original_pos {
+            self.idx = 0;
+            self.original_pos = 0;
+            self.target_pos = 0;
+        }
+
+        while self.idx < self.sections.len() {
+            let section = &self.sections[self.idx];
+            let original_end = self.original_pos + section.original;
+
+            if section.is_keep() {
+                if original_end > pos {
+                    return Ok(Some(self.target_pos + (pos - self.original_pos)));
+                }
+                self.target_pos += section.original;
+            } else {
+                if !mode.is_simple()
+                    && original_end >= pos
+                    && (
+                        mode.is_track_del() && self.original_pos < pos && original_end > pos
+                        || mode.is_track_before() && self.original_pos < pos
+                        || mode.is_track_after() && original_end > pos
+                    )
+                {
+                    return Ok(None);
+                }
+
+                if original_end > pos
+                    || (original_end == pos && assoc.is_before() && section.original == 0)
+                {
+                    return Ok(match pos == self.original_pos || assoc.is_before() {
+                        true => Some(self.target_pos),
+                        false => Some(self.target_pos + section.replaced),
+                    });
+                }
+
+                self.target_pos += section.replaced;
+            }
+
+            self.original_pos = original_end;
+            self.idx += 1;
+        }
+
+        if pos > self.original_pos {
+            return Err(out_of_bounds(pos, self.original_pos));
+        }
+
+        Ok(Some(self.target_pos))
+    }
+}
+
 impl ChangeDesc {
+    #[inline]
+    pub(crate) fn cursor(&self) -> ChangeDescCursor<'_> {
+        ChangeDescCursor::new(self)
+    }
     /// Maps a character offset `pos` from the old document to the new document.
     ///
     /// - `assoc`: Determines whether `pos` sticks to the character [`Assoc::Before`] or
@@ -76,44 +166,7 @@ impl ChangeDesc {
     /// # }
     /// ```
     pub fn map_pos(&self, pos: usize, assoc: Assoc, mode: MapMode) -> Result<Option<usize>, Error> {
-        let mut original_pos = 0;
-        let mut target_pos = 0;
-        
-        for section in &self.sections {
-            let original_end = original_pos + section.original;
-            if section.is_keep() { 
-                if original_end > pos { return Ok(Some(target_pos + (pos - original_pos))); }
-                target_pos += section.original;
-            }
-            else {
-                if !mode.is_simple() 
-                    && original_end >= pos 
-                    && (
-                          mode.is_track_del() && original_pos < pos && original_end > pos 
-                          || mode.is_track_before() && original_pos < pos 
-                          || mode.is_track_after() && original_end > pos 
-                ) { return Ok(None); }
-                
-                if original_end > pos 
-                || (
-                    original_end == pos 
-                    && assoc.is_before() 
-                    && section.original == 0
-                ) { 
-                    return Ok(match pos == original_pos ||assoc.is_before()  {
-                        true => Some(target_pos),
-                        false => Some(target_pos + section.replaced),
-                    })
-                }
-                
-                target_pos += section.replaced
-            }
-            
-            original_pos = original_end
-        }
-        
-        if pos > original_pos { return Err(out_of_bounds(pos, original_pos)); }
-        
-        return Ok(Some(target_pos));
+        let mut cursor = ChangeDescCursor::new(self);
+        cursor.map_pos(pos, assoc, mode)
     }
 }

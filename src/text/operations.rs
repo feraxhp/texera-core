@@ -33,11 +33,19 @@ impl Text {
                 self.rope = text.rope;
             } else if from_char >= self.rope.len_chars() {
                 self.rope.append(text.rope);
+            } else if text.rope.len_chars() > 64 {
+                let right = self.rope.split_off(from_char);
+                self.rope.append(text.rope);
+                self.rope.append(right);
             } else {
                 let mut insert_pos = from_char;
                 for chunk in text.rope.chunks() {
                     self.rope.insert(insert_pos, chunk);
-                    insert_pos += chunk.chars().count();
+                    if chunk.is_ascii() {
+                        insert_pos += chunk.len();
+                    } else {
+                        insert_pos += chunk.chars().count();
+                    }
                 }
             }
         }
@@ -78,11 +86,19 @@ impl Text {
             self.rope.append(text.rope.clone());
         } else if self.rope.len_chars() == 0 {
             self.rope = text.rope.clone();
+        } else if text.rope.len_chars() > 64 {
+            let right = self.rope.split_off(char_idx);
+            self.rope.append(text.rope.clone());
+            self.rope.append(right);
         } else {
             let mut insert_pos = char_idx;
             for chunk in text.rope.chunks() {
                 self.rope.insert(insert_pos, chunk);
-                insert_pos += chunk.chars().count();
+                if chunk.is_ascii() {
+                    insert_pos += chunk.len();
+                } else {
+                    insert_pos += chunk.chars().count();
+                }
             }
         }
     }
@@ -145,9 +161,34 @@ impl Text {
         
         let slice_str = self.rope.slice(start..end).to_string();
         
-        match line_sep {
-            Some(sep) => slice_str.replace("\r\n", "\n").replace('\n', &sep),
-            None => slice_str,
+        let Some(sep) = line_sep else {
+            return slice_str;
+        };
+
+        if !slice_str.contains('\n') {
+            return slice_str;
         }
+
+        let mut result = String::with_capacity(slice_str.len());
+        let bytes = slice_str.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+                result.push_str(&sep);
+                i += 2;
+            } else if bytes[i] == b'\n' {
+                result.push_str(&sep);
+                i += 1;
+            } else {
+                let s_idx = i;
+                while i < bytes.len() && bytes[i] != b'\n' && !(bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n') {
+                    i += 1;
+                }
+                if let Ok(segment) = std::str::from_utf8(&bytes[s_idx..i]) {
+                    result.push_str(segment);
+                }
+            }
+        }
+        result
     }
 }

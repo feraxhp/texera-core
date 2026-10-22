@@ -25,7 +25,7 @@ impl ChangeText for Text {
     #[inline(always)]
     fn append(&mut self, other: Self) {
         if other.len_chars() > 0 {
-            *self = self.clone().append(other);
+            *self = std::mem::take(self).append(other);
         }
     }
     #[inline(always)]

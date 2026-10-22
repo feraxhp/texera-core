@@ -49,8 +49,19 @@ impl ChangeSet {
     /// # }
     /// ```
     pub fn from_slice(specs: &[ChangeSpec], doc_len: usize) -> Result<Self, Error> {
-        let mut sections: Vec<Section> = Vec::new();
-        let mut inserts: Vec<Text> = Vec::new();
+        if specs.is_empty() {
+            return Ok(if doc_len > 0 {
+                ChangeSet::new(
+                    vec![Section { original: doc_len, replaced: Section::keep }],
+                    vec![Text::new()],
+                )
+            } else {
+                ChangeSet::new(Vec::new(), Vec::new())
+            });
+        }
+        let cap = specs.len() * 2 + 1;
+        let mut sections: Vec<Section> = Vec::with_capacity(cap);
+        let mut inserts: Vec<Text> = Vec::with_capacity(cap);
         let mut pos = 0;
         let mut total: Option<ChangeSet> = None;
 

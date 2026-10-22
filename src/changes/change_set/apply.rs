@@ -34,6 +34,10 @@ impl ChangeSet {
             );
         }
 
+        if self.description.sections.iter().all(|s| s.is_keep()) {
+            return Ok(text);
+        }
+
         let mut rope = text.into_rope();
         let changes: Vec<_> = self.iter_changes(false).collect();
         for change in changes.into_iter().rev() {
@@ -42,10 +46,16 @@ impl ChangeSet {
             if to > from {
                 rope.remove(from..to);
             }
-            let mut insert_pos = from;
-            for chunk in change.text.as_rope().chunks() {
-                rope.insert(insert_pos, chunk);
-                insert_pos += chunk.chars().count();
+            if change.text.len_chars() > 0 {
+                let mut insert_pos = from;
+                for chunk in change.text.as_rope().chunks() {
+                    rope.insert(insert_pos, chunk);
+                    if chunk.is_ascii() {
+                        insert_pos += chunk.len();
+                    } else {
+                        insert_pos += chunk.chars().count();
+                    }
+                }
             }
         }
 

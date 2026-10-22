@@ -33,10 +33,20 @@ pub fn find_cluster_break(
     forward: bool,
     include_extending: bool,
 ) -> usize {
-    let total_chars = string.chars().count();
+    if string.is_ascii() {
+        let len = string.len();
+        return if forward {
+            if pos >= len { pos } else { pos + 1 }
+        } else {
+            if pos == 0 { 0 } else { pos.min(len) - 1 }
+        };
+    }
+
     if forward {
-        if pos >= total_chars { return pos; }
-        if !include_extending { return pos + 1; }
+        if !include_extending {
+            let total_chars = string.chars().count();
+            return if pos >= total_chars { pos } else { pos + 1 };
+        }
         let mut char_offset = 0;
         for g in string.graphemes(true) {
             let next_offset = char_offset + g.chars().count();
@@ -45,10 +55,13 @@ pub fn find_cluster_break(
             }
             char_offset = next_offset;
         }
-        total_chars
+        char_offset.max(pos)
     } else {
         if pos == 0 { return 0; }
-        if !include_extending { return pos.min(total_chars) - 1; }
+        if !include_extending {
+            let total_chars = string.chars().count();
+            return pos.min(total_chars) - 1;
+        }
         let mut char_offset = 0;
         for g in string.graphemes(true) {
             let next_offset = char_offset + g.chars().count();
@@ -75,6 +88,9 @@ pub fn find_cluster_break(
 /// ```
 pub fn count_column(string: &str, tab_size: usize) -> usize {
     let tab_size = tab_size.max(1);
+    if string.is_ascii() && !string.bytes().any(|b| b == b'\t' || b == b'\n' || b == b'\r') {
+        return string.len();
+    }
     let mut col = 0;
     for g in string.graphemes(true) {
         if g == "\t" {

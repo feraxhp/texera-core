@@ -136,9 +136,11 @@ impl super::State {
 
                 if cancelled {
                     tx.changes = None;
+                    tx.doc = self.doc.clone();
                 } else if !excluded_ranges.is_empty() {
                     if let Some(ch) = &tx.changes {
                         let filtered = Self::filter_changeset(ch, &excluded_ranges, self.doc.len_chars())?;
+                        tx.doc = filtered.apply(self.doc.clone())?;
                         tx.changes = Some(filtered);
                     }
                 }
@@ -148,10 +150,6 @@ impl super::State {
         // 3. Ejecutar TransactionExtenders (en orden inverso al registro, como CodeMirror 6)
         let extenders = self.facet::<TransactionExtender>();
         if !extenders.is_empty() {
-            tx.doc = match &tx.changes {
-                Some(ch) => ch.apply(self.doc.clone())?,
-                None => self.doc.clone(),
-            };
             for ext in extenders.iter().rev() {
                 let extra = (ext.0)(&tx);
                 if let Some(ue) = extra.user_event {
@@ -189,10 +187,9 @@ impl super::State {
         let mut recorded_selections = Vec::new();
 
         if let Some(changes) = &tx.changes {
-            self.doc = changes.apply(self.doc)?;
+            self.doc = tx.doc.clone();
             recorded_changes.push(changes.clone());
         }
-        tx.doc = self.doc.clone();
 
         let doc_len = self.doc.len_chars();
         let mut new_selection = match (&tx.selection, &tx.changes) {
@@ -371,17 +368,18 @@ impl super::State {
     }
 
     fn clamp_selection(sel: &Selection, max_len: usize) -> Selection {
-        sel.clone()
-            .into_iter()
-            .map(|(r, is_main)| {
+        if sel.ranges_ref().iter().all(|r| r.to() <= max_len) {
+            return sel.clone();
+        }
+        sel.iter()
+            .map(|(&r, is_main)| {
                 let anchor = r.anchor().min(max_len);
                 let head = r.head().min(max_len);
                 let clamped = if anchor == head {
                     SelectionRange::cursor(head)
                 } else {
                     SelectionRange::range(anchor, head)
-                }
-                ;
+                };
                 (clamped, is_main)
             })
             .collect()

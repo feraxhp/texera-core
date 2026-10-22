@@ -34,9 +34,10 @@ impl Selection {
     /// # }
     /// ```
     pub fn map(&self, change: &ChangeDesc, assoc: Assoc) -> Result<Selection, Error> {
+        let mut cursor = change.cursor();
         let mut mapped_ranges = Vec::with_capacity(self.ranges.len());
         for range in &self.ranges {
-            mapped_ranges.push(range.map(change, assoc)?);
+            mapped_ranges.push(range.map_with_cursor(&mut cursor, assoc)?);
         }
         Self::from_with_head(mapped_ranges, self.main)
     }
@@ -59,6 +60,47 @@ impl Selection {
     {
         let raw: Vec<SelectionRange> = selections.into_iter().map(Into::into).collect();
         let raw_len = raw.len();
+        if raw_len == 0 {
+            if let Some(m) = main_idx {
+                return Err(
+                    range_error("**main** should be less than **selections len**")
+                        .extend_note(format!("main: `{m}`, length: `0`").as_tip_cotinuation())
+                );
+            }
+            return Ok((raw, 0));
+        }
+        if raw_len == 1 {
+            if let Some(m) = main_idx {
+                if m >= 1 {
+                    return Err(
+                        range_error("**main** should be less than **selections len**")
+                            .extend_note(format!("main: `{m}`, length: `1`").as_tip_cotinuation())
+                    );
+                }
+            }
+            return Ok((raw, 0));
+        }
+
+        let is_sorted_and_disjoint = raw.windows(2).all(|w| {
+            (w[0].from() < w[1].from() || (w[0].from() == w[1].from() && w[0].to() <= w[1].to()))
+                && !w[0].overlaps(&w[1])
+        });
+        if is_sorted_and_disjoint {
+            let target_main = match main_idx {
+                Some(m) => {
+                    if m >= raw_len {
+                        return Err(
+                            range_error("**main** should be less than **selections len**")
+                                .extend_note(format!("main: `{m}`, length: `{raw_len}`").as_tip_cotinuation())
+                        );
+                    }
+                    m
+                }
+                None => raw_len - 1,
+            };
+            return Ok((raw, target_main));
+        }
+
         let target_main = match main_idx {
             Some(m) => {
                 if m >= raw_len {

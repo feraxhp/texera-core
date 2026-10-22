@@ -76,7 +76,7 @@ impl State {
     /// assert!(ranges[1].1); // last range is primary
     /// ```
     pub fn iter_selections(&self) -> impl Iterator<Item = (SelectionRange, bool)> {
-        self.selection.clone().into_iter()
+        self.selection.iter().map(|(&r, is_main)| (r, is_main))
     }
 
     /// Creates a [`TransactionSpec`] that replaces every range in the current selection with `text`.
@@ -100,7 +100,7 @@ impl State {
             .selection
             .iter()
             .map(|(s, _)| {
-                let from = s.from().min(s.to());
+                let from = s.from();
                 ChangeSpec::new(from, Some(s.to()), Some(text.clone()))
                     .expect("Selection range invariant guarantees from <= to")
             })

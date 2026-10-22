@@ -96,17 +96,24 @@ impl<'a> Line<'a> {
             if len == 0 {
                 return 0;
             }
-            if self.slice.char(len - 1) == '\n' {
-                if len >= 2 && self.slice.char(len - 2) == '\r' {
-                    2
+            if let Some(last_chunk) = self.slice.chunks().last() {
+                let bytes = last_chunk.as_bytes();
+                let chunk_len = bytes.len();
+                if chunk_len > 0 && bytes[chunk_len - 1] == b'\n' {
+                    if chunk_len >= 2 && bytes[chunk_len - 2] == b'\r' {
+                        return 2;
+                    } else if chunk_len == 1 && len >= 2 && self.slice.char(len - 2) == '\r' {
+                        return 2;
+                    } else {
+                        return 1;
+                    }
+                } else if chunk_len > 0 && bytes[chunk_len - 1] == b'\r' {
+                    return 1;
                 } else {
-                    1
+                    return 0;
                 }
-            } else if self.slice.char(len - 1) == '\r' {
-                1
-            } else {
-                0
             }
+            0
         }
     }
 

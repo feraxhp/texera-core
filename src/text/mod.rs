@@ -91,13 +91,19 @@ where
     A: AsRef<str>
 {
     fn from(lines: &[A]) -> Self {
+        if lines.is_empty() {
+            return Self::default();
+        }
+        if lines.len() == 1 {
+            return Self { rope: Rope::from_str(lines[0].as_ref()) };
+        }
         let mut builder = RopeBuilder::new();
-        
+        let last_idx = lines.len() - 1;
         for (i, line) in lines.iter().enumerate() {
             builder.append(line.as_ref());
             
             // Append newline for all lines except the last one
-            if i < lines.len() - 1 {
+            if i < last_idx {
                 builder.append("\n");
             }
         }

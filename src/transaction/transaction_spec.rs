@@ -116,13 +116,19 @@ impl TransactionSpec {
     /// [`State::change_by_range`](crate::State::change_by_range)), shifting each subsequent spec's
     /// selection by the cumulative length delta of prior changes.
     pub fn try_from_iter(iter: impl IntoIterator<Item = TransactionSpec>) -> Result<Self, Error> {
+        Self::try_from_iter_result(iter.into_iter().map(Ok))
+    }
+
+    /// Fallible variant of [`TransactionSpec::try_from_iter`] that short-circuits on the first `Err`.
+    pub fn try_from_iter_result(iter: impl IntoIterator<Item = Result<TransactionSpec, Error>>) -> Result<Self, Error> {
         let mut offset: isize = 0;
         let mut ranges = Vec::new();
         let mut changes = Vec::new();
         let mut effects = Vec::new();
         let mut annotations = Vec::new();
 
-        for tr in iter {
+        for item in iter {
+            let tr = item?;
             if let Some(selection) = tr.selection {
                 for r in selection.ranges() {
                     let anchor = (r.anchor() as isize + offset) as usize;
@@ -154,15 +160,6 @@ impl TransactionSpec {
         }
 
         Ok(spec)
-    }
-
-    /// Fallible variant of [`TransactionSpec::try_from_iter`] that short-circuits on the first `Err`.
-    pub fn try_from_iter_result(iter: impl IntoIterator<Item = Result<TransactionSpec, Error>>) -> Result<Self, Error> {
-        let mut collected = Vec::new();
-        for item in iter {
-            collected.push(item?);
-        }
-        Self::try_from_iter(collected)
     }
 }
 
